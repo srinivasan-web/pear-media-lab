@@ -9,6 +9,28 @@ import {
 } from "../utils/constant";
 import usePersistentState from "../hooks/usePersistentState";
 
+const buildFriendlyError = (error) => {
+  const message = error?.message || "Image generation failed";
+
+  if (error?.status === 401 || error?.code === "HF_AUTH_INVALID") {
+    return {
+      message,
+      title: "Image generation needs Hugging Face setup",
+      steps: [
+        "Create or refresh a Hugging Face User Access Token with inference access.",
+        "Save it as HF_TOKEN in my-app/.env and restart the dev server.",
+        "Check your Hugging Face inference provider settings if auto-routing keeps selecting a provider you cannot use.",
+      ],
+    };
+  }
+
+  return {
+    message,
+    title: "",
+    steps: [],
+  };
+};
+
 function WorkflowImage({ appTheme, setAppTheme }) {
   const [file, setFile] = useState(null);
   const [analysis, setAnalysis] = usePersistentState("pear-image-analysis", "");
@@ -16,6 +38,7 @@ function WorkflowImage({ appTheme, setAppTheme }) {
   const [history, setHistory] = usePersistentState("pear-image-history", []);
   const [loadingAction, setLoadingAction] = useState("");
   const [error, setError] = useState("");
+  const [setupHint, setSetupHint] = useState(null);
   const [style, setStyle] = usePersistentState(
     "pear-image-style",
     STYLE_PRESETS[0].id,
@@ -72,6 +95,7 @@ function WorkflowImage({ appTheme, setAppTheme }) {
       setAnalysis("");
       setLastPrompt("");
       setError("");
+      setSetupHint(null);
     };
     reader.readAsDataURL(selectedFile);
   };
@@ -86,6 +110,7 @@ function WorkflowImage({ appTheme, setAppTheme }) {
     try {
       setLoadingAction("Analyzing image...");
       setError("");
+      setSetupHint(null);
 
       const result = await analyzeImage(file, {
         model: analysisModel,
@@ -106,6 +131,7 @@ function WorkflowImage({ appTheme, setAppTheme }) {
       ]);
     } catch (err) {
       setError(err.message || "Failed to analyze image");
+      setSetupHint(null);
     } finally {
       setLoadingAction("");
     }
@@ -121,20 +147,25 @@ function WorkflowImage({ appTheme, setAppTheme }) {
     try {
       setLoadingAction("Generating variations...");
       setError("");
+      setSetupHint(null);
 
       const finalPrompt = `${analysis}\nCreate a polished variation in ${
         styles.find((item) => item.id === style)?.label || style
       } style.`;
       setLastPrompt(finalPrompt);
 
-      const requests = Array.from({ length: variationCount }).map(() =>
-        generateImage(finalPrompt, {
+      const results = [];
+
+      for (let index = 0; index < variationCount; index += 1) {
+        setLoadingAction(
+          `Generating variation ${index + 1} of ${variationCount}...`,
+        );
+        const result = await generateImage(finalPrompt, {
           style,
           model: generationModel,
-        }),
-      );
-
-      const results = await Promise.all(requests);
+        });
+        results.push(result);
+      }
 
       setImages(results);
       setHistory((prev) => [
@@ -149,7 +180,9 @@ function WorkflowImage({ appTheme, setAppTheme }) {
         ...prev,
       ]);
     } catch (err) {
-      setError(err.message || "Image generation failed");
+      const friendlyError = buildFriendlyError(err);
+      setError(friendlyError.message || "Image generation failed");
+      setSetupHint(friendlyError.steps.length > 0 ? friendlyError : null);
     } finally {
       setLoadingAction("");
     }
@@ -188,6 +221,7 @@ function WorkflowImage({ appTheme, setAppTheme }) {
     setImages([]);
     setLastPrompt("");
     setError("");
+    setSetupHint(null);
     setHistoryQuery("");
   };
 
@@ -377,7 +411,19 @@ function WorkflowImage({ appTheme, setAppTheme }) {
         </div>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <div className="error-panel">
+          <p className="error">{error}</p>
+          {setupHint && (
+            <div className="setup-hint">
+              <h4>{setupHint.title}</h4>
+              {setupHint.steps.map((step) => (
+                <p key={step}>{step}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {images.length > 0 && (
         <div id="image-results" className="results-panel">

@@ -1,7 +1,4 @@
-import { InferenceClient } from "@huggingface/inference";
 import { API_CONFIG, MESSAGES, STYLE_PRESETS } from "./constant";
-
-const client = new InferenceClient(API_CONFIG.huggingFaceToken);
 
 const handleApiError = async (res) => {
   const data = await res.json().catch(() => ({}));
@@ -9,8 +6,13 @@ const handleApiError = async (res) => {
   if (!res.ok) {
     const message =
       data?.error?.message || data?.message || "Something went wrong with API";
+    const error = new Error(message);
 
-    throw new Error(message);
+    error.status = res.status;
+    error.code = data?.code || data?.error?.code || "API_ERROR";
+    error.details = data?.details || [];
+
+    throw error;
   }
 
   return data;
@@ -144,24 +146,25 @@ export const generateImage = async (
   try {
     validateText(userPrompt);
 
-    if (!API_CONFIG.huggingFaceToken) {
-      throw new Error(
-        "Missing Hugging Face token. Add VITE_HF_TOKEN to your env.",
-      );
-    }
-
     const finalPrompt = enhancePromptForImage(userPrompt, style);
-
-    const imageBlob = await client.textToImage({
-      model,
-      inputs: finalPrompt,
-      parameters: buildImageParameters(model),
+    const res = await fetch(API_CONFIG.imageGenerationUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        prompt: finalPrompt,
+        parameters: buildImageParameters(model),
+      }),
     });
 
+    const data = await handleApiError(res);
+
     return {
-      imageUrl: URL.createObjectURL(imageBlob),
+      imageUrl: `data:${data.mimeType};base64,${data.imageBase64}`,
       finalPrompt,
-      model,
+      model: data.model || model,
     };
   } catch (error) {
     console.error("Error generating image:", error);

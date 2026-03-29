@@ -8,7 +8,8 @@ export const DEFAULT_PROMPTS = {
 export const API_CONFIG = {
   geminiBaseUrl: "https://generativelanguage.googleapis.com/v1beta/models",
   geminiApiKey: import.meta.env.VITE_GEMINI_KEY || "",
-  huggingFaceToken: import.meta.env.VITE_HF_TOKEN || "",
+  imageGenerationUrl:
+    import.meta.env.VITE_IMAGE_API_URL || "http://localhost:8787/api/image/generate",
   timeout: 5000,
   retries: 2,
 };
